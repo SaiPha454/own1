@@ -1,0 +1,206 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Mark 42</title>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div>
+        <button id="start" onclick="start()">Start</button>
+        <button id="call" onclick="">Call</button>
+        <button id="down">Hang Up</button>
+    </div>
+    <div>
+        <h3>Me</h3>
+        <video id="localvideo" autoplay></video>
+    </div>
+    <div>
+        <h3>My Fri</h3>
+        <video id="remotevideo" autoplay></video>
+    </div>
+
+    <script>
+    var socket=io.connect();
+    function sendToserver(msg){
+        socket.emit("message",msg);
+    }
+
+    var localpeerConnection;
+    var localstream;
+    var pcConfig = {
+  'iceServers': [{
+    'urls': 'stun:stun.l.google.com:19302'
+  }]
+};
+
+    var mediaConstraint={video:true, audio:true};
+    function start(){
+        localpeerConnection=new RTCPeerConnection(pcConfig);//web app step 1
+        navigator.mediaDevices.getUserMedia(mediaConstraint).then(function(stream){
+            localstream=stream;
+            document.getElementById("localvideo").srcObject=stream;
+           //localpeerConnection.addStream(stream);
+           stream.getTracks().forEach(track=>localpeerConnection.addTrack(track,stream));
+        console.log("Add stream to localpeer connection");
+
+        }).catch(function(){
+            alert("Error at accessing cammera");
+        });
+
+        
+        //.............................//////////////////////////////|||||||||||||||||||||........................................................................
+
+        localpeerConnection.onnegotiationneeded=NegotiationEvent;
+        localpeerConnection.ontrack=TrackEvent;
+        //ICE event is fired after created offer
+        localpeerConnection.addEventListener("icecandidate",IceCandidate_HandleConnection);
+
+        
+       
+
+        //console.log("I am Real:",real_peer());
+        
+    }//........................................................................................
+    
+    function TrackEvent(event){
+        console.log("I am your friiend");
+        console.log(event);
+        document.getElementById("remotevideo").srcObject=event.streams[0];
+    }
+    //..............................This is the main problem part ICE.....................................................
+    function IceCandidate_HandleConnection(event){
+            console.log("ICE is starting...................");
+            const iceCandidate = event.candidate;
+            if(iceCandidate){
+                sendToserver({
+                    type:"candidate",
+                    label:event.candidate.sdpMLineIndex,
+                    id:event.candidate.sdpMid,
+                    candidate:event.candidate.candidate
+                    
+                });
+               
+            }
+            else{
+                console.log("End of candidate");
+            }
+
+           
+        }
+
+    socket.on("candidate",function(candi){
+                var newICE=new RTCIceCandidate({
+                    sdpMLineIndex: candi.label,
+                    candidate:candi.candidate
+
+                });
+                console.log("Create ICE object successfully,Trying to add ICE to connection");
+                localpeerConnection.addIceCandidate(newICE).catch(function(){
+                    console.log("Please i don't want error");
+                });
+                console.log("Congratulation!....add the ICE successfully");
+
+
+            });
+
+
+//.............As a caller we wait for the answer message...............
+    socket.on("answer_sdp",function(ans){
+        console.log("Receive the answer from the Caller.Comfirm The message Type :",ans.type);
+        var new_ans_dsc=new RTCSessionDescription(ans.sdp);
+        localpeerConnection.setRemoteDescription(new_ans_dsc).then(function(){
+            console.log("The caller set the Remote Description successfully");
+        }).catch(function(){
+            console.log("Cannot setRemoteDescription at the caller");
+        });
+
+        localpeerConnection.ontrack=function(rmv){
+            alert("Get video back");
+        };
+       // localpeerConnection.ontrack=TrackEvent;
+    });
+
+//.......when we perform as a callee...listen for offer_sdp message for creating answer
+    var remotePeerConnection;
+    var remotestream;
+    socket.on("offer_sdp",function(o){
+        console.log("Get new Offer message .The type is :", o.type);
+
+        localpeerConnection=new RTCPeerConnection(pcConfig);
+        var newDesc=new RTCSessionDescription(o.sdp);
+        localpeerConnection.setRemoteDescription(newDesc).then(function(){
+            console.log("The Reveiver or Caller has set the RemoteDesription successfully");
+
+        }).catch(function(){
+            console.log("The caller or Reciever cannot set the RemoteDescription ");
+        });//setremoteDescription
+
+        //........................................
+              //getMediaDevices to send back to the caller and set it to connection
+              navigator.mediaDevices.getUserMedia(mediaConstraint).then(function(str){
+            remotestream=str;
+            document.getElementById("localvideo").srcObject=str;
+            remotestream.getTracks().forEach(track=>localpeerConnection.addTrack(track,remotestream));
+            console.log("send video back to the caller");
+            //localpeerConnection.addStream(str);
+            
+            
+        }).catch(function(){
+            alert("Cannot get the Media devices");
+        });
+        //create Answer to the caller
+        localpeerConnection.createAnswer().then(function(ans){
+            localpeerConnection.setLocalDescription(ans);
+            sendToserver({
+                type:"answer_sdp",
+                sdp:ans
+            });
+            console.log("Send answer to the caller completed");
+        });
+
+        localpeerConnection.onicecandidate=IceCandidate_HandleConnection;
+        
+        
+            localpeerConnection.ontrack=TrackEvent;
+        
+
+
+        
+    });
+//............................................................................
+var offer_SDP;
+    function NegotiationEvent(){
+        console.log("Initailizing to browser action");
+        localpeerConnection.createOffer().then(function(desc){
+            localpeerConnection.setLocalDescription(desc).then(function(){
+                console.log("Add Offer SDP successfully");
+                offer_SDP=desc;
+                sendToserver({
+                            type:"offer_sdp",
+                            sdp:desc
+                        });
+
+            }).catch(function(){
+                console.log("Error at Offer SDP creation");
+            });
+
+
+        })
+    }
+  //....................................................  
+    // function real_peer(){
+    //     if(localpeerConnection){
+    //         return localpeerConnection;
+    //     }else if(remotePeerConnection){
+    //         return remotePeerConnection;
+    //     }
+        
+    // }
+
+    
+    
+    </script>
+</body>
+</html>
